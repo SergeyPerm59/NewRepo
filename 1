@@ -70,19 +70,19 @@ BEGIN
     
     WHILE i <= repayments_arr.COUNT 
     LOOP
-      IF repayments_arr(i).repayment_amount > 0 THEN -- corrected line
-        IF repayments_arr(i).repayment_amount >= rec_percent.percent_amount - remaining_repayment THEN -- corrected line
+      IF repayments_arr(i).repayment_amount > 0 THEN
+        IF repayments_arr(i).repayment_amount >= rec_percent.percent_amount - remaining_repayment THEN
          
             PIPE ROW (repayment_rec_type(
               rec_percent.contact_id,
               rec_percent.percent_date,
               rec_percent.percent_amount,
               rec_percent.percent_amount - remaining_repayment,
-              (repayments_arr(i)).repayment_date
+              repayments_arr(i).repayment_date
             ));
 
           temp_repayment := repayments_arr(i);
-          temp_repayment.repayment_amount := repayments_arr(i).repayment_amount - (rec_percent.percent_amount - remaining_repayment); -- corrected line
+          temp_repayment.repayment_amount := repayments_arr(i).repayment_amount - (rec_percent.percent_amount - remaining_repayment);
           repayments_arr(i) := temp_repayment;
           remaining_repayment := rec_percent.percent_amount;
 
@@ -97,10 +97,10 @@ BEGIN
                 rec_percent.percent_date,
                 rec_percent.percent_amount,
                 repayments_arr(i).repayment_amount,
-                (repayments_arr(i)).repayment_date
+                repayments_arr(i).repayment_date
             ));
 
-          remaining_repayment := remaining_repayment + repayments_arr(i).repayment_amount;-- corrected line
+          remaining_repayment := remaining_repayment + repayments_arr(i).repayment_amount;
           temp_repayment := repayments_arr(i);
           temp_repayment.repayment_amount := 0;
           repayments_arr(i) := temp_repayment;
@@ -116,4 +116,3 @@ BEGIN
   
   RETURN;
 END;
-/
