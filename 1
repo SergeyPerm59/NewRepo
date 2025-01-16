@@ -1,15 +1,3 @@
-CREATE OR REPLACE TYPE repayment_rec_type AS OBJECT (
-    contact_id       INT,
-    percent_date     DATE,
-    percent_amount   NUMBER(15, 2),
-    repayment_amount NUMBER(15, 2),
-    repayment_date   DATE
-);
-/
-
-CREATE OR REPLACE TYPE repayment_table_type AS TABLE OF repayment_rec_type;
-/
-
 CREATE OR REPLACE FUNCTION allocate_repayments
   RETURN repayment_table_type PIPELINED
 AS
@@ -67,8 +55,15 @@ BEGIN
 
     -- Populate repayments data
     FOR rec IN (SELECT repayment_date, repayment_amount, contact_id FROM repayment ORDER BY contact_id, repayment_date) LOOP
-        repayments_amount_arr(rec.contact_id)(repayments_amount_arr(rec.contact_id).COUNT+1) := rec.repayment_amount;
-        repayments_date_arr(rec.contact_id)(repayments_date_arr(rec.contact_id).COUNT+1) := rec.repayment_date;
+       
+        IF NOT repayments_amount_arr.exists(rec.contact_id) THEN
+           repayments_amount_arr(rec.contact_id) := repayment_nt_type();
+           repayments_date_arr(rec.contact_id) := repayment_date_nt_type();
+        END IF;
+         repayments_amount_arr(rec.contact_id).extend;
+         repayments_amount_arr(rec.contact_id)(repayments_amount_arr(rec.contact_id).LAST) := rec.repayment_amount;
+        repayments_date_arr(rec.contact_id).extend;
+        repayments_date_arr(rec.contact_id)(repayments_date_arr(rec.contact_id).LAST) := rec.repayment_date;
     END LOOP;
 
     OPEN percent_cursor;
@@ -99,4 +94,3 @@ BEGIN
   CLOSE percent_cursor;
   RETURN;
 END;
-/
