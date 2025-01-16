@@ -1,3 +1,22 @@
+CREATE OR REPLACE TYPE repayment_rec_type AS OBJECT (
+    contact_id       INT,
+    percent_date     DATE,
+    percent_amount   NUMBER(15, 2),
+    repayment_amount NUMBER(15, 2),
+    repayment_date   DATE
+);
+/
+
+CREATE OR REPLACE TYPE repayment_table_type AS TABLE OF repayment_rec_type;
+/
+
+
+-- Define the nested table types outside the function
+CREATE OR REPLACE TYPE repayment_nt_type IS TABLE OF  NUMBER(15,2) ;
+/
+CREATE OR REPLACE TYPE repayment_date_nt_type IS TABLE OF DATE;
+/
+
 CREATE OR REPLACE FUNCTION allocate_repayments
   RETURN repayment_table_type PIPELINED
 AS
@@ -8,9 +27,6 @@ AS
     percent_amount NUMBER(15, 2),
     rn             INT
   );
-    -- Nested table type for repayment data (indexed by contact_id)
-    TYPE repayment_nt_type IS TABLE OF  NUMBER(15,2) INDEX BY PLS_INTEGER;
-    TYPE repayment_date_nt_type IS TABLE OF DATE INDEX BY PLS_INTEGER;
     
     -- Variable to store the remaining amount of percent
     remaining_percent_amount   NUMBER(15, 2);
@@ -19,10 +35,10 @@ AS
     rec_percent      percent_rec_type;
     
      -- Collection to hold repayment amounts for each contact_id
-    repayments_amount_arr  repayment_nt_type;
+    repayments_amount_arr  repayment_nt_type := repayment_nt_type();
     
     -- Collection to hold repayment dates for each contact_id
-    repayments_date_arr  repayment_date_nt_type;
+    repayments_date_arr  repayment_date_nt_type := repayment_date_nt_type();
     
     -- Cursor for fetching percent data
     CURSOR percent_cursor IS
@@ -94,3 +110,4 @@ BEGIN
   CLOSE percent_cursor;
   RETURN;
 END;
+/
