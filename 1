@@ -1,112 +1,162 @@
 CREATE OR REPLACE FUNCTION allocate_repayments
 RETURN allocation_table_type PIPELINED
 IS
-    rec_percent       percent%ROWTYPE;
-    repayment_arr      repayment%ROWTYPE;
-    repayments_arr     repayment_array_type := repayment_array_type();
-    remaining_repayment NUMBER(15,2) := 0;
-    percent_cursor    SYS_REFCURSOR;
-    i                 INTEGER;
-    temp_repayment    repayment_type;
-    new_repayment     repayment_type;
-    j                 INTEGER := 1;
-    alloc_row        allocation_row_type;
+    -- Объявление переменных
+    rec_percent       percent%ROWTYPE;          -- Запись для хранения данных о процентах из курсора
+    repayment_arr      repayment%ROWTYPE;      -- Запись для хранения данных о выплате из цикла
+    repayments_arr     repayment_array_type := repayment_array_type(); -- Массив для хранения всех выплат
+    remaining_repayment NUMBER(15,2) := 0;    -- Остаток от предыдущих выплат, который нужно применить
+    percent_cursor    SYS_REFCURSOR;          -- Курсор для выбора данных о процентах
+    i                 INTEGER;                 -- Индекс для обхода массива выплат
+    temp_repayment    repayment_type;       -- Временная переменная для хранения данных о выплате
+    new_repayment     repayment_type;      -- Новая переменная для временного хранения данных о выплате
+    j                 INTEGER := 1;            -- Индекс для отслеживания последней использованной выплаты
+    alloc_row        allocation_row_type;   -- Переменная для хранения строки результата
+    err_msg           VARCHAR2(200);          -- Переменная для хранения сообщений об ошибках
 BEGIN
+    -- Инициализация индекса j
     j := 1;
 
-    -- Collect repayment data
-    FOR repayment_arr IN (SELECT repayment_date, repayment_amount FROM repayment ORDER BY repayment_date)
+    -- Блок обработки ошибок для цикла сбора выплат
+    BEGIN
+        -- 1. Сбор данных о выплатах и добавление их в массив
+        FOR repayment_arr IN (SELECT repayment_date, repayment_amount FROM repayment ORDER BY repayment_date)
+        LOOP
+            new_repayment := repayment_type(repayment_arr.repayment_date, repayment_arr.repayment_amount);
+            repayments_arr.EXTEND;
+            repayments_arr(repayments_arr.LAST) := new_repayment;
+        END LOOP;
+        -- Обработка ошибок сбора выплат
+        EXCEPTION
+            WHEN OTHERS THEN
+               err_msg := 'Ошибка при сборе данных о выплатах: ' || SQLERRM;
+               RAISE_APPLICATION_ERROR(-20001, err_msg);
+    END;
+
+   -- 2. Открытие курсора для выбора данных о процентах
+    BEGIN
+        OPEN percent_cursor FOR
+            SELECT p.contact_id, p.percent_date, p.percent_amount, rn
+            FROM (SELECT percent.contact_id, percent.percent_date, percent.percent_amount, ROW_NUMBER() OVER (PARTITION BY percent.contact_id ORDER BY percent.percent_date) AS rn
+                FROM percent) p
+            ORDER BY percent_date;
+    -- Обработка ошибок при открытии курсора
+    EXCEPTION
+       WHEN OTHERS THEN
+           err_msg := 'Ошибка при открытии курсора процентов: ' || SQLERRM;
+           RAISE_APPLICATION_ERROR(-20002, err_msg);
+    END;
+    -- 3. Основной цикл обработки
     LOOP
-        new_repayment := repayment_type(repayment_arr.repayment_date, repayment_arr.repayment_amount);
-        repayments_arr.EXTEND;
-        repayments_arr(repayments_arr.LAST) := new_repayment;
-    END LOOP;
-
-    -- Open cursor for percent data
-    OPEN percent_cursor FOR
-        SELECT p.contact_id, p.percent_date, p.percent_amount, rn
-        FROM (SELECT percent.contact_id, percent.percent_date, percent.percent_amount, ROW_NUMBER() OVER (PARTITION BY percent.contact_id ORDER BY percent.percent_date) AS rn
-              FROM percent) p
-        ORDER BY percent_date;
-
-    -- Main Loop
-    LOOP
-        FETCH percent_cursor INTO rec_percent;
-        EXIT WHEN percent_cursor%NOTFOUND;
-        remaining_repayment := 0; -- Reset for each percent row
-        i := j;
-
+        -- 3.1. Извлечение данных о проценте из курсора
+        BEGIN
+            FETCH percent_cursor INTO rec_percent;
+            EXIT WHEN percent_cursor%NOTFOUND;
+            remaining_repayment := 0; -- Обнуление остатка для нового процента
+            i := j;
+        -- Обработка ошибок при извлечении процента
+        EXCEPTION
+            WHEN OTHERS THEN
+              err_msg := 'Ошибка при выборке из курсора процентов: ' || SQLERRM;
+              RAISE_APPLICATION_ERROR(-20003, err_msg);
+        END;
+        -- 3.2. Цикл обхода массива выплат для текущего процента
         WHILE i <= repayments_arr.COUNT
         LOOP
-            IF (repayments_arr(i).repayment_amount > 0) THEN
-                IF (repayments_arr(i).repayment_amount >= rec_percent.percent_amount - remaining_repayment) THEN
-                   alloc_row := allocation_row_type(
-                        rec_percent.contact_id,
-                        rec_percent.percent_date,
-                        rec_percent.percent_amount,
-                        rec_percent.percent_amount - remaining_repayment,
-                        repayments_arr(i).repayment_date
-                    );
-
-                    PIPE ROW(alloc_row);
-
-                    temp_repayment := repayments_arr(i);
-                    temp_repayment.repayment_amount := (repayments_arr(i).repayment_amount - (rec_percent.percent_amount - remaining_repayment));
-                    repayments_arr(i) := temp_repayment;
-                    remaining_repayment := rec_percent.percent_amount;
-
-                    IF remaining_repayment = rec_percent.percent_amount THEN
-                        j := i;
-                        EXIT;
+            -- Блок обработки ошибок распределения выплат
+            BEGIN
+                -- 3.2.1. Проверка, есть ли доступные выплаты для распределения
+                IF (repayments_arr(i).repayment_amount > 0) THEN
+                    -- 3.2.2. Распределение выплаты, если ее хватает
+                    IF (repayments_arr(i).repayment_amount >= rec_percent.percent_amount - remaining_repayment) THEN
+                         -- Создание строки результата
+                        alloc_row := allocation_row_type(
+                            rec_percent.contact_id,
+                            rec_percent.percent_date,
+                            rec_percent.percent_amount,
+                            rec_percent.percent_amount - remaining_repayment,
+                            repayments_arr(i).repayment_date
+                        );
+                        -- Возвращение строки результата
+                        PIPE ROW(alloc_row);
+                        -- Обновление оставшейся суммы выплаты
+                        temp_repayment := repayments_arr(i);
+                        temp_repayment.repayment_amount := (repayments_arr(i).repayment_amount - (rec_percent.percent_amount - remaining_repayment));
+                        repayments_arr(i) := temp_repayment;
+                        -- Обновление остатка
+                        remaining_repayment := rec_percent.percent_amount;
+                        -- Если вся сумма процента покрыта, переходим к следующему проценту
+                        IF remaining_repayment = rec_percent.percent_amount THEN
+                            j := i;
+                            EXIT;
+                        END IF;
+                   ELSE
+                        -- 3.2.3. Распределение остатка выплаты, если ее недостаточно для полного покрытия
+                        alloc_row := allocation_row_type(
+                           101, -- Используем 101 как в исходном коде
+                           rec_percent.percent_date,
+                           rec_percent.percent_amount,
+                           repayments_arr(i).repayment_amount,
+                           repayments_arr(i).repayment_date
+                           );
+                        -- Возвращение строки результата
+                        PIPE ROW(alloc_row);
+                         -- Обновление остатка
+                        remaining_repayment := remaining_repayment + repayments_arr(i).repayment_amount;
+                        -- Обнуление текущей выплаты
+                        temp_repayment := repayments_arr(i);
+                        temp_repayment.repayment_amount := 0;
+                        repayments_arr(i) := temp_repayment;
                     END IF;
-                ELSE
-                   alloc_row := allocation_row_type(
-                        101, -- Hardcoded contact_id as per original code
-                        rec_percent.percent_date,
-                        rec_percent.percent_amount,
-                        repayments_arr(i).repayment_amount,
-                        repayments_arr(i).repayment_date
-                    );
-                    PIPE ROW(alloc_row);
-
-
-                    remaining_repayment := remaining_repayment + repayments_arr(i).repayment_amount;
-                    temp_repayment := repayments_arr(i);
-                    temp_repayment.repayment_amount := 0;
-                    repayments_arr(i) := temp_repayment;
                 END IF;
-            END IF;
+           -- Обработка ошибок в блоке цикла обхода выплат
+           EXCEPTION
+             WHEN OTHERS THEN
+                err_msg := 'Ошибка при распределении выплат: ' || SQLERRM;
+                RAISE_APPLICATION_ERROR(-20004, err_msg);
+           END;
             i := i + 1;
         END LOOP;
     END LOOP;
-
-    CLOSE percent_cursor;
+    -- Закрытие курсора
+    BEGIN
+        CLOSE percent_cursor;
+        -- Обработка ошибок при закрытии курсора
+        EXCEPTION
+            WHEN OTHERS THEN
+               err_msg := 'Ошибка при закрытии курсора процентов: ' || SQLERRM;
+                RAISE_APPLICATION_ERROR(-20005, err_msg);
+    END;
     RETURN;
 END;
 /
 
+-- Создание таблиц
 CREATE TABLE percent(
 percent_order int,
 contact_id int,
 percent_date date,
 percent_amount number(15,2)
 );
-
+/
 CREATE TABLE repayment(
 repayment_order int,
 contact_id int,
 repayment_date date,
 repayment_amount number(15,2)
 );
-
+/
+-- Добавление тестовых данных
 insert into percent(percent_order,contact_id,percent_date,percent_amount) values
 (1,101,DATE '2024-01-01',100000),
 (2,101,DATE '2024-02-01',150000),
 (3,101,DATE '2024-03-01',1200000);
-
+/
 insert into repayment(repayment_order,contact_id,repayment_date,repayment_amount) values
 (1,101,DATE '2024-02-10',90000),
 (2,101,DATE '2024-03-04',300000);
+/
 
--- Query to select results
+-- Вызов функции и вывод результата
 SELECT * FROM TABLE(allocate_repayments());
+/
