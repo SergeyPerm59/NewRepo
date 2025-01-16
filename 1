@@ -1,87 +1,102 @@
+CREATE OR REPLACE TYPE repayment_rec_type AS OBJECT (
+    contact_id       INT,
+    percent_date     DATE,
+    percent_amount   NUMBER(15, 2),
+    repayment_amount NUMBER(15, 2),
+    repayment_date   DATE
+);
+/
+
+CREATE OR REPLACE TYPE repayment_table_type AS TABLE OF repayment_rec_type;
+/
+
 CREATE OR REPLACE FUNCTION allocate_repayments
   RETURN repayment_table_type PIPELINED
 AS
+    -- Record type for percent data
   TYPE percent_rec_type IS RECORD (
     contact_id     INT,
     percent_date   DATE,
     percent_amount NUMBER(15, 2),
     rn             INT
   );
-  rec_percent      percent_rec_type;
-  current_percent_date DATE;
+    -- Nested table type for repayment data (indexed by contact_id)
+    TYPE repayment_nt_type IS TABLE OF  NUMBER(15,2) INDEX BY PLS_INTEGER;
+    TYPE repayment_date_nt_type IS TABLE OF DATE INDEX BY PLS_INTEGER;
+    
+    -- Variable to store the remaining amount of percent
+    remaining_percent_amount   NUMBER(15, 2);
 
-  TYPE repayment_rec_type_temp IS RECORD (
-    repayment_date   DATE,
-    repayment_amount NUMBER(15, 2)
-  );
-
-  TYPE repayment_array_type IS TABLE OF repayment_rec_type_temp INDEX BY PLS_INTEGER;
-  repayments_arr     repayment_array_type;
-  remaining_percent_amount   NUMBER(15, 2);
-  
-  CURSOR percent_cursor IS
+    -- Variable for percent records
+    rec_percent      percent_rec_type;
+    
+     -- Collection to hold repayment amounts for each contact_id
+    repayments_amount_arr  repayment_nt_type;
+    
+    -- Collection to hold repayment dates for each contact_id
+    repayments_date_arr  repayment_date_nt_type;
+    
+    -- Cursor for fetching percent data
+    CURSOR percent_cursor IS
     SELECT
-      p.contact_id,
-      p.percent_date,
-      p.percent_amount,
-      rn
+        p.contact_id,
+        p.percent_date,
+        p.percent_amount,
+        rn
     FROM
-      (
+        (
         SELECT
-          percent.contact_id,
-          percent.percent_date,
-          percent.percent_amount,
-          ROW_NUMBER() OVER(PARTITION BY percent.contact_id ORDER BY percent.percent_date) AS rn
+            percent.contact_id,
+            percent.percent_date,
+            percent.percent_amount,
+            ROW_NUMBER() OVER(PARTITION BY percent.contact_id ORDER BY percent.percent_date) AS rn
         FROM
-          percent
-      ) p
+            percent
+        ) p
     ORDER BY
-      percent_date;
+        percent_date;
 
-  CURSOR repayment_cursor(p_contact_id INT, p_percent_date DATE) IS
+    -- Cursor for fetching repayment data for given contact and percent date
+    CURSOR repayment_cursor(p_contact_id INT, p_percent_date DATE) IS
     SELECT repayment_date, repayment_amount
     FROM repayment
     WHERE contact_id = p_contact_id
     AND repayment_date >= p_percent_date
     ORDER BY repayment_date;
-
 BEGIN
-  -- Populate repayments_arr
-  FOR rec IN (SELECT repayment_date, repayment_amount, contact_id FROM repayment ORDER BY contact_id, repayment_date) LOOP
-    repayments_arr(rec.contact_id).repayment_date := rec.repayment_date;
-    repayments_arr(rec.contact_id).repayment_amount := rec.repayment_amount;
-  END LOOP;
 
-  OPEN percent_cursor;
-
-  LOOP
-    FETCH percent_cursor INTO rec_percent;
-    EXIT WHEN percent_cursor%NOTFOUND;
-
-    current_percent_date := rec_percent.percent_date;
-    remaining_percent_amount := rec_percent.percent_amount;
-    
-
-    FOR rec_repayment IN repayment_cursor(rec_percent.contact_id, rec_percent.percent_date) LOOP
-      IF remaining_percent_amount > 0 THEN
-          
-        IF rec_repayment.repayment_amount <= remaining_percent_amount THEN
-            PIPE ROW (repayment_rec_type(rec_percent.contact_id, current_percent_date, rec_percent.percent_amount, rec_repayment.repayment_amount, rec_repayment.repayment_date));
-            remaining_percent_amount := remaining_percent_amount - rec_repayment.repayment_amount;
-
-          ELSE
-             PIPE ROW (repayment_rec_type(rec_percent.contact_id, current_percent_date, rec_percent.percent_amount, remaining_percent_amount, rec_repayment.repayment_date));
-            remaining_percent_amount := 0;
-
-          END IF;
-        END IF;
+    -- Populate repayments data
+    FOR rec IN (SELECT repayment_date, repayment_amount, contact_id FROM repayment ORDER BY contact_id, repayment_date) LOOP
+        repayments_amount_arr(rec.contact_id)(repayments_amount_arr(rec.contact_id).COUNT+1) := rec.repayment_amount;
+        repayments_date_arr(rec.contact_id)(repayments_date_arr(rec.contact_id).COUNT+1) := rec.repayment_date;
     END LOOP;
 
-    IF remaining_percent_amount > 0 THEN
-      PIPE ROW (repayment_rec_type(rec_percent.contact_id, current_percent_date, rec_percent.percent_amount, remaining_percent_amount, NULL));
-    END IF;
+    OPEN percent_cursor;
+
+  LOOP
+        FETCH percent_cursor INTO rec_percent;
+        EXIT WHEN percent_cursor%NOTFOUND;
+
+        remaining_percent_amount := rec_percent.percent_amount;
+        
+        -- Index for tracking the number of the repayment for the current contact_id
+        FOR i IN 1.. NVL(repayments_amount_arr(rec_percent.contact_id).COUNT,0) LOOP
+         IF remaining_percent_amount > 0 THEN
+            IF repayments_amount_arr(rec_percent.contact_id)(i) <= remaining_percent_amount THEN
+              PIPE ROW (repayment_rec_type(rec_percent.contact_id, rec_percent.percent_date, rec_percent.percent_amount, repayments_amount_arr(rec_percent.contact_id)(i), repayments_date_arr(rec_percent.contact_id)(i)));
+              remaining_percent_amount := remaining_percent_amount - repayments_amount_arr(rec_percent.contact_id)(i);
+            ELSE
+              PIPE ROW (repayment_rec_type(rec_percent.contact_id, rec_percent.percent_date, rec_percent.percent_amount, remaining_percent_amount, repayments_date_arr(rec_percent.contact_id)(i)));
+              remaining_percent_amount := 0;
+            END IF;
+          END IF;
+        END LOOP;
+        IF remaining_percent_amount > 0 THEN
+          PIPE ROW (repayment_rec_type(rec_percent.contact_id, rec_percent.percent_date, rec_percent.percent_amount, remaining_percent_amount, NULL));
+        END IF;
   END LOOP;
 
   CLOSE percent_cursor;
   RETURN;
 END;
+/
