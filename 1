@@ -14,7 +14,7 @@ AS
     repayment_amount NUMBER(15, 2)
   );
 
-  repayment_array_type IS TABLE OF repayment_rec_type_temp INDEX BY PLS_INTEGER;
+  TYPE repayment_array_type IS TABLE OF repayment_rec_type_temp INDEX BY PLS_INTEGER;
   repayments_arr repayment_array_type;
 
 
@@ -82,4 +82,3 @@ BEGIN
   CLOSE percent_cursor;
   RETURN;
 END;
-/
