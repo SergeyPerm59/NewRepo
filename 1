@@ -51,11 +51,12 @@ IS
     j                 INTEGER := 1;            -- Индекс для отслеживания последней использованной выплаты
     alloc_row        allocation_row_type;   -- Переменная для хранения строки результата
     err_msg           VARCHAR2(200);          -- Переменная для хранения сообщений об ошибках
+    current_repayment_amount NUMBER(18,2); -- Variable to track the amount of the current payment being allocated
 BEGIN
     -- Инициализация индекса j
     j := 1;
 
-        -- 2. Открытие курсора для выбора данных о процентах
+    -- 2. Открытие курсора для выбора данных о процентах
     BEGIN
         OPEN percent_cursor FOR
           SELECT
@@ -97,13 +98,13 @@ BEGIN
             remaining_repayment := 0; -- Обнуление остатка для нового процента
             i := j;
             repayments_arr := repayment_array_type(); -- Reset repayments for new percentage
-            -- Add repayments for the current contract ID
-            FOR repayment_arr IN (SELECT repayment_date, repayment_amount FROM repayment WHERE contract_id = rec_percent.contract_id ORDER BY repayment_date)
+             -- Add repayments for the current contract ID
+             FOR repayment_arr IN (SELECT repayment_date, repayment_amount FROM repayment WHERE contract_id = rec_percent.contract_id ORDER BY repayment_date)
              LOOP
-                 new_repayment := repayment_type(repayment_arr.repayment_date, repayment_arr.repayment_amount);
-                 repayments_arr.EXTEND;
-                 repayments_arr(repayments_arr.LAST) := new_repayment;
-             END LOOP;
+                new_repayment := repayment_type(repayment_arr.repayment_date, repayment_arr.repayment_amount);
+                repayments_arr.EXTEND;
+                repayments_arr(repayments_arr.LAST) := new_repayment;
+            END LOOP;
         EXCEPTION
             WHEN OTHERS THEN
               err_msg := 'Ошибка при выборке из курсора процентов: ' || SQLERRM;
@@ -114,23 +115,28 @@ BEGIN
         LOOP
             -- Блок обработки ошибок распределения выплат
             BEGIN
+                 -- Initialize current_repayment_amount for the current iteration
+                current_repayment_amount := 0;
                 -- 3.2.1. Проверка, есть ли доступные выплаты для распределения
                 IF (repayments_arr(i).repayment_amount > 0) THEN
                     -- 3.2.2. Распределение выплаты, если ее хватает
                     IF (repayments_arr(i).repayment_amount >= rec_percent.percent_amount - remaining_repayment) THEN
+                        -- Calculate the amount to allocate from this repayment
+                        current_repayment_amount := rec_percent.percent_amount - remaining_repayment;
+
                          -- Создание строки результата
                         alloc_row := allocation_row_type(
                             rec_percent.contract_id,
                             rec_percent.rate_begin_date,
                             rec_percent.percent_amount,
-                            rec_percent.percent_amount - remaining_repayment,
+                           current_repayment_amount,
                             repayments_arr(i).repayment_date
                         );
                         -- Возвращение строки результата
                         PIPE ROW(alloc_row);
                         -- Обновление оставшейся суммы выплаты
                         temp_repayment := repayments_arr(i);
-                        temp_repayment.repayment_amount := (repayments_arr(i).repayment_amount - (rec_percent.percent_amount - remaining_repayment));
+                        temp_repayment.repayment_amount := (repayments_arr(i).repayment_amount - current_repayment_amount);
                         repayments_arr(i) := temp_repayment;
                         -- Обновление остатка
                         remaining_repayment := rec_percent.percent_amount;
@@ -141,11 +147,12 @@ BEGIN
                         END IF;
                    ELSE
                         -- 3.2.3. Распределение остатка выплаты, если ее недостаточно для полного покрытия
+                        current_repayment_amount := repayments_arr(i).repayment_amount;
                         alloc_row := allocation_row_type(
                             rec_percent.contract_id,
                            rec_percent.rate_begin_date,
                            rec_percent.percent_amount,
-                           repayments_arr(i).repayment_amount,
+                           current_repayment_amount,
                            repayments_arr(i).repayment_date
                            );
                         -- Возвращение строки результата
@@ -180,7 +187,7 @@ BEGIN
     -- Закрытие курсора
     BEGIN
         CLOSE percent_cursor;
-    EXCEPTION
+     EXCEPTION
             WHEN OTHERS THEN
                err_msg := 'Ошибка при закрытии курсора процентов: ' || SQLERRM;
                 RAISE_APPLICATION_ERROR(-20005, err_msg);
