@@ -55,9 +55,8 @@ BEGIN
     -- Инициализация индекса j
     j := 1;
 
-    -- Блок обработки ошибок для цикла сбора выплат
-    BEGIN
         -- 2. Открытие курсора для выбора данных о процентах
+    BEGIN
         OPEN percent_cursor FOR
           SELECT
             p.contract_id,
@@ -188,59 +187,3 @@ BEGIN
     END;
     RETURN;
 END;
-/
-
--- Создание таблиц
-CREATE TABLE percent(
-contract_id varchar2(32),
-currency_ccode varchar2(3),
-rate_type varchar2(15),
-contract_rate number,
-percent_amount number(18,2),
-rate_begin_date date,
-rate_end_date date
-);
-/
-CREATE TABLE repayment(
-repayment_order number,
-contract_sid  number,
-contract_id varchar2(32),
-currency_ccode varchar2(3),
-accound_sid number,
-repayment_date date,
-repayment_amount number(18,2),
-percent_amount_rub number,
-exchange_rate_date date,
-exchange_rate number
-);
-/
-
--- Добавление тестовых данных
-INSERT INTO percent (contract_id, currency_ccode, rate_type, contract_rate, percent_amount, rate_begin_date, rate_end_date) VALUES
-('165284', '987', 'Нефик', 4.45, 244993.17, TO_DATE('01.01.2024', 'DD.MM.YYYY'), TO_DATE('31.01.2024', 'DD.MM.YYYY')),
-('165284', '987', 'Нефик', 4.45, 229187.15, TO_DATE('01.02.2024', 'DD.MM.YYYY'), TO_DATE('29.02.2024', 'DD.MM.YYYY')),
-('165284', '987', 'Нефик', 4.45, 244993.17, TO_DATE('01.03.2024', 'DD.MM.YYYY'), TO_DATE('31.03.2024', 'DD.MM.YYYY')),
-('165284', '987', 'Нефик', 4.45, 237090.17, TO_DATE('01.04.2024', 'DD.MM.YYYY'), TO_DATE('30.04.2024', 'DD.MM.YYYY')),
-('165284', '987', 'Нефик', 4.45, 244993.17, TO_DATE('01.05.2024', 'DD.MM.YYYY'), TO_DATE('31.05.2024', 'DD.MM.YYYY')),
-('165284', '987', 'Нефик', 4.45, 237090.16, TO_DATE('01.06.2024', 'DD.MM.YYYY'), TO_DATE('30.06.2024', 'DD.MM.YYYY')),
-('165284', '987', 'Нефик', 4.45, 237090.16, TO_DATE('01.06.2024', 'DD.MM.YYYY'), TO_DATE('30.06.2024', 'DD.MM.YYYY')),
-('165284', '987', 'Нефик', 4.45, 244993.17, TO_DATE('01.07.2024', 'DD.MM.YYYY'), TO_DATE('31.07.2024', 'DD.MM.YYYY')),
-('165284', '987', 'Нефик', 4.45, 221284.15, TO_DATE('01.08.2024', 'DD.MM.YYYY'), TO_DATE('28.08.2024', 'DD.MM.YYYY')),
-('166799', '978', 'Нефик', 4.45, 2261475.41, TO_DATE('01.01.2024', 'DD.MM.YYYY'), TO_DATE('31.01.2024', 'DD.MM.YYYY')),
-('166799', '978', 'Нефик', 4.45, 2115573.77, TO_DATE('01.02.2024', 'DD.MM.YYYY'), TO_DATE('29.02.2024', 'DD.MM.YYYY')),
-('166799', '978', 'Нефик', 4.45, 2261475.41, TO_DATE('01.03.2024', 'DD.MM.YYYY'), TO_DATE('31.03.2024', 'DD.MM.YYYY')),
-('166799', '978', 'Нефик', 4.45, 2188524.59, TO_DATE('01.04.2024', 'DD.MM.YYYY'), TO_DATE('30.04.2024', 'DD.MM.YYYY')),
-('166799', '978', 'Нефик', 4.45, 2261475.41, TO_DATE('01.05.2024', 'DD.MM.YYYY'), TO_DATE('31.05.2024', 'DD.MM.YYYY')),
-('166799', '978', 'Нефик', 4.45, 2188524.59, TO_DATE('01.06.2024', 'DD.MM.YYYY'), TO_DATE('30.06.2024', 'DD.MM.YYYY')),
-('166799', '978', 'Нефик', 4.45, 2261475.41, TO_DATE('01.07.2024', 'DD.MM.YYYY'), TO_DATE('31.07.2024', 'DD.MM.YYYY')),
-('166799', '978', 'Нефик', 4.45, 2042622.95, TO_DATE('01.08.2024', 'DD.MM.YYYY'), TO_DATE('28.08.2024', 'DD.MM.YYYY'));
-/
-INSERT INTO repayment (repayment_order, contract_sid, contract_id, currency_ccode, accound_sid, repayment_date, repayment_amount) VALUES
-(1, 165284, '165284', '987', 2212322, TO_DATE('20.06.2024', 'DD.MM.YYYY'), 1351413.93),
-(2, 165284, '165284', '987', 2212322, TO_DATE('28.08.2024', 'DD.MM.YYYY'), 553210.38),
-(1, 166799, '166799', '978', 2212322, TO_DATE('20.06.2024', 'DD.MM.YYYY'), 12474590.16),
-(2, 166199, '166199', '978', 2212322, TO_DATE('28.08.2024', 'DD.MM.YYYY'), 5106557.38);
-/
-
-SELECT * FROM TABLE(allocate_repayments());
-/
