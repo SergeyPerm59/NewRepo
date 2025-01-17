@@ -1,11 +1,49 @@
+-- Определение типа для записи о выплате (repayment)
+CREATE OR REPLACE TYPE repayment_type AS OBJECT (
+    repayment_date DATE,
+    repayment_amount NUMBER(18,2)
+);
+/
+
+-- Определение типа для таблицы выплат
+CREATE OR REPLACE TYPE repayment_array_type AS TABLE OF repayment_type;
+/
+
+-- Определение типа для строки результата распределения
+CREATE OR REPLACE TYPE allocation_row_type AS OBJECT (
+    contract_id      VARCHAR2(32),
+    percent_date     DATE,
+    percent_amount   NUMBER(18,2),
+    repayment_amount NUMBER(18,2),
+    repayment_date   DATE
+);
+/
+
+-- Определение типа для таблицы результатов распределения
+CREATE OR REPLACE TYPE allocation_table_type AS TABLE OF allocation_row_type;
+/
+
+-- Создание конвейерной функции allocate_repayments
 CREATE OR REPLACE FUNCTION allocate_repayments
 RETURN allocation_table_type PIPELINED
 IS
+    -- Объявление пользовательского типа записи для процентов
+    TYPE percent_rec_type IS RECORD (
+        contract_id    VARCHAR2(32 CHAR),
+        currency_ccode VARCHAR2(3 CHAR),
+        rate_type      VARCHAR2(15),
+        contract_rate  NUMBER,
+        percent_amount NUMBER(18,2),
+        rate_begin_date DATE,
+        rate_end_date   DATE,
+        rn             NUMBER
+    );
+
     -- Объявление переменных
-    rec_percent       percent%ROWTYPE;          -- Запись для хранения данных о процентах из курсора
+    rec_percent       percent_rec_type;          -- Запись для хранения данных о процентах из курсора
     repayment_arr      repayment%ROWTYPE;      -- Запись для хранения данных о выплате из цикла
     repayments_arr     repayment_array_type := repayment_array_type(); -- Массив для хранения всех выплат
-    remaining_repayment NUMBER(15,2) := 0;    -- Остаток от предыдущих выплат, который нужно применить
+    remaining_repayment NUMBER(18,2) := 0;    -- Остаток от предыдущих выплат, который нужно применить
     percent_cursor    SYS_REFCURSOR;          -- Курсор для выбора данных о процентах
     i                 INTEGER;                 -- Индекс для обхода массива выплат
     temp_repayment    repayment_type;       -- Временная переменная для хранения данных о выплате
@@ -19,33 +57,38 @@ BEGIN
 
     -- Блок обработки ошибок для цикла сбора выплат
     BEGIN
-        -- 1. Сбор данных о выплатах и добавление их в массив
-        FOR repayment_arr IN (SELECT repayment_date, repayment_amount FROM repayment ORDER BY repayment_date)
-        LOOP
-            new_repayment := repayment_type(repayment_arr.repayment_date, repayment_arr.repayment_amount);
-            repayments_arr.EXTEND;
-            repayments_arr(repayments_arr.LAST) := new_repayment;
-        END LOOP;
-        -- Обработка ошибок сбора выплат
-        EXCEPTION
-            WHEN OTHERS THEN
-               err_msg := 'Ошибка при сборе данных о выплатах: ' || SQLERRM;
-               RAISE_APPLICATION_ERROR(-20001, err_msg);
-    END;
-
-   -- 2. Открытие курсора для выбора данных о процентах
-    BEGIN
+        -- 2. Открытие курсора для выбора данных о процентах
         OPEN percent_cursor FOR
-            SELECT p.contact_id, p.percent_date, p.percent_amount, rn
-            FROM (SELECT percent.contact_id, percent.percent_date, percent.percent_amount, ROW_NUMBER() OVER (PARTITION BY percent.contact_id ORDER BY percent.percent_date) AS rn
-                FROM percent) p
-            ORDER BY percent_date;
-    -- Обработка ошибок при открытии курсора
+          SELECT
+            p.contract_id,
+            p.currency_ccode,
+            p.rate_type,
+            p.contract_rate,
+            p.percent_amount,
+            p.rate_begin_date,
+            p.rate_end_date,
+            rn
+          FROM (
+            SELECT
+              percent.contract_id,
+              percent.currency_ccode,
+              percent.rate_type,
+              percent.contract_rate,
+              percent.percent_amount,
+              percent.rate_begin_date,
+              percent.rate_end_date,
+              ROW_NUMBER() OVER (PARTITION BY percent.contract_id ORDER BY percent.rate_begin_date) AS rn
+            FROM
+              percent
+          ) p
+        ORDER BY
+          p.rate_begin_date;
     EXCEPTION
        WHEN OTHERS THEN
            err_msg := 'Ошибка при открытии курсора процентов: ' || SQLERRM;
            RAISE_APPLICATION_ERROR(-20002, err_msg);
     END;
+
     -- 3. Основной цикл обработки
     LOOP
         -- 3.1. Извлечение данных о проценте из курсора
@@ -54,7 +97,14 @@ BEGIN
             EXIT WHEN percent_cursor%NOTFOUND;
             remaining_repayment := 0; -- Обнуление остатка для нового процента
             i := j;
-        -- Обработка ошибок при извлечении процента
+            repayments_arr := repayment_array_type(); -- Reset repayments for new percentage
+            -- Add repayments for the current contract ID
+            FOR repayment_arr IN (SELECT repayment_date, repayment_amount FROM repayment WHERE contract_id = rec_percent.contract_id ORDER BY repayment_date)
+             LOOP
+                 new_repayment := repayment_type(repayment_arr.repayment_date, repayment_arr.repayment_amount);
+                 repayments_arr.EXTEND;
+                 repayments_arr(repayments_arr.LAST) := new_repayment;
+             END LOOP;
         EXCEPTION
             WHEN OTHERS THEN
               err_msg := 'Ошибка при выборке из курсора процентов: ' || SQLERRM;
@@ -71,8 +121,8 @@ BEGIN
                     IF (repayments_arr(i).repayment_amount >= rec_percent.percent_amount - remaining_repayment) THEN
                          -- Создание строки результата
                         alloc_row := allocation_row_type(
-                            rec_percent.contact_id,
-                            rec_percent.percent_date,
+                            rec_percent.contract_id,
+                            rec_percent.rate_begin_date,
                             rec_percent.percent_amount,
                             rec_percent.percent_amount - remaining_repayment,
                             repayments_arr(i).repayment_date
@@ -93,8 +143,8 @@ BEGIN
                    ELSE
                         -- 3.2.3. Распределение остатка выплаты, если ее недостаточно для полного покрытия
                         alloc_row := allocation_row_type(
-                           101, -- Используем 101 как в исходном коде
-                           rec_percent.percent_date,
+                            rec_percent.contract_id,
+                           rec_percent.rate_begin_date,
                            rec_percent.percent_amount,
                            repayments_arr(i).repayment_amount,
                            repayments_arr(i).repayment_date
@@ -109,7 +159,6 @@ BEGIN
                         repayments_arr(i) := temp_repayment;
                     END IF;
                 END IF;
-           -- Обработка ошибок в блоке цикла обхода выплат
            EXCEPTION
              WHEN OTHERS THEN
                 err_msg := 'Ошибка при распределении выплат: ' || SQLERRM;
@@ -120,8 +169,8 @@ BEGIN
         -- Дополнительная проверка и добавление строки, если после цикла WHILE остались непокрытые проценты
         IF remaining_repayment < rec_percent.percent_amount THEN
               alloc_row := allocation_row_type(
-                101,
-                rec_percent.percent_date,
+                rec_percent.contract_id,
+                rec_percent.rate_begin_date,
                 rec_percent.percent_amount,
                 rec_percent.percent_amount - remaining_repayment,
                 NULL  -- Дата выплаты NULL, т.к. ее нет
@@ -132,11 +181,66 @@ BEGIN
     -- Закрытие курсора
     BEGIN
         CLOSE percent_cursor;
-        -- Обработка ошибок при закрытии курсора
-        EXCEPTION
+    EXCEPTION
             WHEN OTHERS THEN
                err_msg := 'Ошибка при закрытии курсора процентов: ' || SQLERRM;
                 RAISE_APPLICATION_ERROR(-20005, err_msg);
     END;
     RETURN;
 END;
+/
+
+-- Создание таблиц
+CREATE TABLE percent(
+contract_id varchar2(32),
+currency_ccode varchar2(3),
+rate_type varchar2(15),
+contract_rate number,
+percent_amount number(18,2),
+rate_begin_date date,
+rate_end_date date
+);
+/
+CREATE TABLE repayment(
+repayment_order number,
+contract_sid  number,
+contract_id varchar2(32),
+currency_ccode varchar2(3),
+accound_sid number,
+repayment_date date,
+repayment_amount number(18,2),
+percent_amount_rub number,
+exchange_rate_date date,
+exchange_rate number
+);
+/
+
+-- Добавление тестовых данных
+INSERT INTO percent (contract_id, currency_ccode, rate_type, contract_rate, percent_amount, rate_begin_date, rate_end_date) VALUES
+('165284', '987', 'Нефик', 4.45, 244993.17, TO_DATE('01.01.2024', 'DD.MM.YYYY'), TO_DATE('31.01.2024', 'DD.MM.YYYY')),
+('165284', '987', 'Нефик', 4.45, 229187.15, TO_DATE('01.02.2024', 'DD.MM.YYYY'), TO_DATE('29.02.2024', 'DD.MM.YYYY')),
+('165284', '987', 'Нефик', 4.45, 244993.17, TO_DATE('01.03.2024', 'DD.MM.YYYY'), TO_DATE('31.03.2024', 'DD.MM.YYYY')),
+('165284', '987', 'Нефик', 4.45, 237090.17, TO_DATE('01.04.2024', 'DD.MM.YYYY'), TO_DATE('30.04.2024', 'DD.MM.YYYY')),
+('165284', '987', 'Нефик', 4.45, 244993.17, TO_DATE('01.05.2024', 'DD.MM.YYYY'), TO_DATE('31.05.2024', 'DD.MM.YYYY')),
+('165284', '987', 'Нефик', 4.45, 237090.16, TO_DATE('01.06.2024', 'DD.MM.YYYY'), TO_DATE('30.06.2024', 'DD.MM.YYYY')),
+('165284', '987', 'Нефик', 4.45, 237090.16, TO_DATE('01.06.2024', 'DD.MM.YYYY'), TO_DATE('30.06.2024', 'DD.MM.YYYY')),
+('165284', '987', 'Нефик', 4.45, 244993.17, TO_DATE('01.07.2024', 'DD.MM.YYYY'), TO_DATE('31.07.2024', 'DD.MM.YYYY')),
+('165284', '987', 'Нефик', 4.45, 221284.15, TO_DATE('01.08.2024', 'DD.MM.YYYY'), TO_DATE('28.08.2024', 'DD.MM.YYYY')),
+('166799', '978', 'Нефик', 4.45, 2261475.41, TO_DATE('01.01.2024', 'DD.MM.YYYY'), TO_DATE('31.01.2024', 'DD.MM.YYYY')),
+('166799', '978', 'Нефик', 4.45, 2115573.77, TO_DATE('01.02.2024', 'DD.MM.YYYY'), TO_DATE('29.02.2024', 'DD.MM.YYYY')),
+('166799', '978', 'Нефик', 4.45, 2261475.41, TO_DATE('01.03.2024', 'DD.MM.YYYY'), TO_DATE('31.03.2024', 'DD.MM.YYYY')),
+('166799', '978', 'Нефик', 4.45, 2188524.59, TO_DATE('01.04.2024', 'DD.MM.YYYY'), TO_DATE('30.04.2024', 'DD.MM.YYYY')),
+('166799', '978', 'Нефик', 4.45, 2261475.41, TO_DATE('01.05.2024', 'DD.MM.YYYY'), TO_DATE('31.05.2024', 'DD.MM.YYYY')),
+('166799', '978', 'Нефик', 4.45, 2188524.59, TO_DATE('01.06.2024', 'DD.MM.YYYY'), TO_DATE('30.06.2024', 'DD.MM.YYYY')),
+('166799', '978', 'Нефик', 4.45, 2261475.41, TO_DATE('01.07.2024', 'DD.MM.YYYY'), TO_DATE('31.07.2024', 'DD.MM.YYYY')),
+('166799', '978', 'Нефик', 4.45, 2042622.95, TO_DATE('01.08.2024', 'DD.MM.YYYY'), TO_DATE('28.08.2024', 'DD.MM.YYYY'));
+/
+INSERT INTO repayment (repayment_order, contract_sid, contract_id, currency_ccode, accound_sid, repayment_date, repayment_amount) VALUES
+(1, 165284, '165284', '987', 2212322, TO_DATE('20.06.2024', 'DD.MM.YYYY'), 1351413.93),
+(2, 165284, '165284', '987', 2212322, TO_DATE('28.08.2024', 'DD.MM.YYYY'), 553210.38),
+(1, 166799, '166799', '978', 2212322, TO_DATE('20.06.2024', 'DD.MM.YYYY'), 12474590.16),
+(2, 166199, '166199', '978', 2212322, TO_DATE('28.08.2024', 'DD.MM.YYYY'), 5106557.38);
+/
+
+SELECT * FROM TABLE(allocate_repayments());
+/
