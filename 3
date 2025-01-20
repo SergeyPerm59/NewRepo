@@ -1,0 +1,77 @@
+-- Создание таблиц
+CREATE TABLE percent(
+contract_id varchar2(32),
+currency_ccode varchar2(3),
+rate_type varchar2(15),
+contract_rate number,
+percent_amount number(18,2),
+rate_begin_date date,
+rate_end_date date
+);
+/
+CREATE TABLE repayment(
+contract_id varchar2(32),
+currency_ccode varchar2(3),
+repayment_date date,
+repayment_amount number(18,2)
+);
+/
+-- Добавление тестовых данных
+INSERT INTO percent (contract_id, currency_ccode, rate_type, contract_rate, percent_amount, rate_begin_date, rate_end_date) VALUES
+('165284', '987', 'Нефик', 4.45, 244993.17, '01.01.2024', '31.01.2024'),
+('165284', '987', 'Нефик', 4.45, 229187.15, '01.02.2024', '29.02.2024'),
+('165284', '987', 'Нефик', 4.45, 244993.17, '01.03.2024', '31.03.2024'),
+('165284', '987', 'Нефик', 4.45, 237090.17, '01.04.2024', '30.04.2024'),
+('165284', '987', 'Нефик', 4.45, 244993.17, '01.05.2024', '31.05.2024'),
+('165284', '987', 'Нефик', 4.45, 237090.16, '01.06.2024', '30.06.2024'),
+('165284', '987', 'Нефик', 4.45, 237090.16, '01.06.2024', '30.06.2024'),
+('165284', '987', 'Нефик', 4.45, 244993.17, '01.07.2024', '31.07.2024'),
+('165284', '987', 'Нефик', 4.45, 221284.15, '01.08.2024', '28.08.2024'),
+('166799', '978', 'Нефик', 4.45, 2261475.41, '01.01.2024', '31.01.2024'),
+('166799', '978', 'Нефик', 4.45, 2115573.77, '01.02.2024', '29.02.2024'),
+('166799', '978', 'Нефик', 4.45, 2261475.41, '01.03.2024', '31.03.2024'),
+('166799', '978', 'Нефик', 4.45, 2188524.59, '01.04.2024', '30.04.2024'),
+('166799', '978', 'Нефик', 4.45, 2261475.41, '01.05.2024', '31.05.2024'),
+('166799', '978', 'Нефик', 4.45, 2188524.59, '01.06.2024', '30.06.2024'),
+('166799', '978', 'Нефик', 4.45, 2261475.41, '01.07.2024', '31.07.2024'),
+('166799', '978', 'Нефик', 4.45, 2042622.95, '01.08.2024', '28.08.2024');
+/
+INSERT INTO repayment (contract_id, currency_ccode, repayment_date, repayment_amount) VALUES
+('165284', '987', '20.06.2024', 1351413.93),
+('165284', '987', '28.08.2024', 553210.38),
+('166799', '978', '20.06.2024', 12474590.16),
+('166199', '978', '28.08.2024', 5106557.38);
+
+
+INSERT INTO repayment(contract_id,currency_ccode,repayment_date,repayment_amount)VALUES('165284','987','20.06.2024',1351413.93)
+INSERT INTO repayment(contract_id,currency_ccode,repayment_date,repayment_amount)VALUES('165284','987','28.08.2024',553210.38)
+INSERT INTO repayment(contract_id,currency_ccode,repayment_date,repayment_amount)VALUES('166799','978','20.06.2024',12474590.16)
+INSERT INTO repayment(contract_id,currency_ccode,repayment_date,repayment_amount)VALUES('166199','978','28.08.2024',5106557.38)
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('165284','987','Нефик',4.45,244993.17,'01.01.2024','31.01.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('165284','987','Нефик',4.45,229187.15,'01.02.2024','29.02.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('165284','987','Нефик',4.45,244993.17,'01.03.2024','31.03.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('165284','987','Нефик',4.45,237090.17,'01.04.2024','30.04.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('165284','987','Нефик',4.45,244993.17,'01.05.2024','31.05.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('165284','987','Нефик',4.45,237090.16,'01.06.2024','30.06.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('165284','987','Нефик',4.45,237090.16,'01.06.2024','30.06.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('165284','987','Нефик',4.45,244993.17,'01.07.2024','31.07.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('165284','987','Нефик',4.45,221284.15,'01.08.2024','28.08.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('166799','978','Нефик',4.45,2261475.41,'01.01.2024','31.01.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('166799','978','Нефик',4.45,2115573.77,'01.02.2024','29.02.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('166799','978','Нефик',4.45,2261475.41,'01.03.2024','31.03.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('166799','978','Нефик',4.45,2188524.59,'01.04.2024','30.04.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('166799','978','Нефик',4.45,2261475.41,'01.05.2024','31.05.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('166799','978','Нефик',4.45,2188524.59,'01.06.2024','30.06.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('166799','978','Нефик',4.45,2261475.41,'01.07.2024','31.07.2024')
+INSERT INTO percent(contract_id,currency_ccode,rate_type,contract_rate,percent_amount,rate_begin_date,rate_end_date)VALUES('166799','978','Нефик',4.45,2042622.95,'01.08.2024','28.08.2024')
+contract_id|currency_code|rate_type|contract_rate|percent_amount|rate_begin_date|rate_end_date|repayment_amount|repayment_date
+-----------+-------------+---------+-------------+--------------+---------------+-------------+----------------+----------
+ 165284   |  978      |Нефик   |   4.45     | 244993.17   | 01.01.2024   | 31.01.2024 |  244993.17    |20.06.2024
+ 165284   |  978      |Нефик   |   4.45     | 229187.15   | 01.01.2024   | 31.01.2024 |  229187.15    |20.06.2024
+ 165284   |  978      |Нефик   |   4.45     | 244993.17   | 01.01.2024   | 31.01.2024 |  244993.17    |20.06.2024
+ 165284   |  978      |Нефик   |   4.45     | 237090.17   | 01.01.2024   | 31.01.2024 |  237090.17    |20.06.2024
+ 165284   |  978      |Нефик   |   4.45     | 244993.17   | 01.01.2024   | 31.01.2024 |  244993.17    |20.06.2024
+ 165284   |  978      |Нефик   |   4.45     | 237090.16   | 01.01.2024   | 31.01.2024 |  150157.10    |20.06.2024
+ 165284   |  978      |Нефик   |   4.45     | 237090.16   | 01.01.2024   | 31.01.2024 |   86933.06    |28.08.2024
+ 165284   |  978      |Нефик   |   4.45     | 244993.17   | 01.01.2024   | 31.01.2024 |  244993.17    |28.08.2024
+ 165284   |  978      |Нефик   |   4.45     | 221284.15   | 01.01.2024   | 31.01.2024 |  221284.15    |28.08.2024
