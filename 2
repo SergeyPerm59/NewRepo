@@ -1,0 +1,144 @@
+CREATE OR REPLACE FUNCTION allocate_repayments
+RETURN allocation_table_type PIPELINED
+IS
+  -- Custom type for interest records
+  TYPE percent_rec_type IS RECORD (
+    contract_id    VARCHAR2(32 CHAR),
+    currency_ccode VARCHAR2(3 CHAR),
+    rate_type      VARCHAR2(15),
+    contract_rate  NUMBER,
+    percent_amount NUMBER(18,2),
+    rate_begin_date DATE,
+    rate_end_date   DATE,
+    rn NUMBER
+  );
+  rec_percent             percent_rec_type;
+  repayment_record        repayment%ROWTYPE;
+  repayment_cursor        SYS_REFCURSOR;
+  interest_cursor         SYS_REFCURSOR;
+  repayment_index         INTEGER;
+  current_repayment_amount   NUMBER(18,2); -- Amount to allocate
+  remaining_interest      NUMBER(18,2);
+  alloc_row             allocation_row_type;
+  err_msg                VARCHAR2(200);
+BEGIN
+  repayment_index := 1;
+
+  OPEN interest_cursor FOR
+  SELECT
+    p.contract_id,
+    p.currency_ccode,
+    p.rate_type,
+    p.contract_rate,
+    p.percent_amount,
+    p.rate_begin_date,
+    p.rate_end_date,
+    rn
+  FROM (
+    SELECT
+      percent.contract_id,
+      percent.currency_ccode,
+      percent.rate_type,
+      percent.contract_rate,
+      percent.percent_amount,
+      percent.rate_begin_date,
+      percent.rate_end_date,
+      ROW_NUMBER() OVER (PARTITION BY percent.contract_id ORDER BY percent.rate_begin_date) AS rn
+    FROM
+      percent
+  ) p
+  ORDER BY
+    p.rate_begin_date;
+
+  LOOP -- loop through interest periods
+    FETCH interest_cursor INTO rec_percent;
+    EXIT WHEN interest_cursor%NOTFOUND;
+
+    remaining_interest := 0;
+    repayment_index := 1; -- Reset for new interest period
+  -- Open the repayment cursor for the current contract
+  OPEN repayment_cursor FOR SELECT repayment_date, repayment_amount FROM repayment WHERE contract_id = rec_percent.contract_id ORDER BY repayment_date;
+     LOOP
+          FETCH repayment_cursor into repayment_record;
+          EXIT WHEN repayment_cursor%NOTFOUND;
+
+        BEGIN
+        current_repayment_amount := 0;
+        --Check there are repayments to process
+        IF (repayment_record.repayment_amount > 0) THEN
+           -- Enough to cover the interest
+          IF (repayment_record.repayment_amount >= rec_percent.percent_amount - remaining_interest) THEN
+            current_repayment_amount := rec_percent.percent_amount - remaining_interest;
+
+           alloc_row := allocation_row_type(
+                rec_percent.contract_id,
+                rec_percent.rate_begin_date,
+                rec_percent.percent_amount,
+               current_repayment_amount,
+                repayment_record.repayment_date
+            );
+
+            PIPE ROW(alloc_row);
+
+            -- Update the remaining interest
+            remaining_interest := rec_percent.percent_amount;
+            -- Adjust the repayment amount
+            repayment_record.repayment_amount := repayment_record.repayment_amount - current_repayment_amount;
+             -- If entire amount of interest is covered
+            IF remaining_interest = rec_percent.percent_amount THEN
+                 EXIT; -- Move to next interest
+            END IF;
+          ELSE
+            current_repayment_amount := repayment_record.repayment_amount;
+            alloc_row := allocation_row_type(
+               rec_percent.contract_id,
+               rec_percent.rate_begin_date,
+               rec_percent.percent_amount,
+             current_repayment_amount,
+              repayment_record.repayment_date
+            );
+             PIPE ROW(alloc_row);
+          --  Update remaining interest
+          remaining_interest := remaining_interest + repayment_record.repayment_amount;
+        -- Set repayment to zero
+           repayment_record.repayment_amount := 0;
+           END IF;
+         END IF;
+         EXCEPTION
+            WHEN OTHERS THEN
+              err_msg := 'Ошибка при распределении выплат: ' || SQLERRM;
+              RAISE_APPLICATION_ERROR(-20004, err_msg);
+          END;
+        repayment_index := repayment_index + 1;
+    END LOOP; -- Loop through payments
+
+    -- If there is any remaining interest add a line
+     IF remaining_interest < rec_percent.percent_amount THEN
+        alloc_row := allocation_row_type(
+        rec_percent.contract_id,
+        rec_percent.rate_begin_date,
+        rec_percent.percent_amount,
+        rec_percent.percent_amount - remaining_interest,
+        NULL
+       );
+      PIPE ROW(alloc_row);
+     END IF;
+      CLOSE repayment_cursor;
+    END LOOP;
+
+  CLOSE interest_cursor;
+
+  RETURN;
+
+EXCEPTION
+WHEN OTHERS THEN
+  IF interest_cursor%ISOPEN THEN
+    CLOSE interest_cursor;
+  END IF;
+    IF repayment_cursor%ISOPEN THEN
+    CLOSE repayment_cursor;
+  END IF;
+  err_msg := 'Unexpected error: ' || SQLERRM;
+    RAISE_APPLICATION_ERROR(-20001, err_msg);
+END;
+/
