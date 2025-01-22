@@ -99,6 +99,7 @@ IS
     err_msg                 VARCHAR2(200);
     repayment_amount_temp    NUMBER(18,2);
     remaining_repayment_temp NUMBER(18,2);
+    current_repayment_amount_remaining NUMBER(18,2);
 BEGIN
     FOR rec_percent IN percent_cursor
         LOOP
@@ -119,8 +120,9 @@ BEGIN
                     repayment_rec_fetch.repayment_amount,
                    repayment_rec_fetch.repayment_date
                 );
-                  IF (repayment_rec.repayment_amount > 0) THEN
-                       repayment_amount_temp := repayment_rec.repayment_amount;
+                current_repayment_amount_remaining := repayment_rec.repayment_amount;
+                  IF (current_repayment_amount_remaining > 0) THEN
+                       repayment_amount_temp := current_repayment_amount_remaining;
                         IF (repayment_amount_temp >= remaining_repayment_temp) THEN
                            current_repayment_amount := remaining_repayment_temp;
                            allocated_repayment_amount := current_repayment_amount;
@@ -132,8 +134,8 @@ BEGIN
                                  repayment_rec.repayment_date
                             );
                            PIPE ROW(alloc_row);
-                           repayment_rec.repayment_amount := repayment_amount_temp - current_repayment_amount;
-                           remaining_repayment_temp := 0;
+                           current_repayment_amount_remaining := repayment_amount_temp - current_repayment_amount;
+                            remaining_repayment_temp := 0;
                         ELSE
                           current_repayment_amount := repayment_amount_temp;
                            allocated_repayment_amount := current_repayment_amount;
@@ -146,7 +148,7 @@ BEGIN
                            );
                              PIPE ROW(alloc_row);
                             remaining_repayment_temp := remaining_repayment_temp - repayment_amount_temp;
-                           repayment_rec.repayment_amount := 0;
+                            current_repayment_amount_remaining := 0;
                         END IF;
                 END IF;
                 IF remaining_repayment_temp = 0 THEN
