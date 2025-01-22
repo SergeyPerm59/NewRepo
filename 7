@@ -1,25 +1,3 @@
-CREATE OR REPLACE TYPE repayment_rec_type AS OBJECT (
-    contract_id       VARCHAR2(32),
-	currency_ccode    VARCHAR2(3),
-	rate_type         VARCHAR2(15),
-	contract_rate     NUMBER,
-	percent_amount    NUMBER,
-	rate_begin_date   DATE,
-	rate_end_date     DATE,
-    repayment_amount  NUMBER,
-    repayment_date    DATE
-);
-/
-
-CREATE OR REPLACE TYPE allocation_row_type AS OBJECT (
-    contract_id      VARCHAR2(32),
-    rate_begin_date   DATE,
-    percent_amount    NUMBER,
-    repayment_amount  NUMBER,
-    repayment_date    DATE
-);
-/
-
 CREATE OR REPLACE FUNCTION allocate_repayments
     RETURN allocation_table_type PIPELINED
 IS
@@ -33,10 +11,21 @@ IS
         rate_end_date   DATE,
         rn             NUMBER
     );
+   TYPE contract_id_rec_type IS RECORD (
+        contract_id      VARCHAR2(32)
+    );
 
     rec_percent         percent_rec_type;
-    CURSOR percent_cursor IS
-        SELECT
+    rec_contract_id     contract_id_rec_type;
+
+
+     CURSOR contract_id_cursor IS
+        SELECT DISTINCT contract_id
+          FROM percent
+        ORDER BY contract_id;
+
+    CURSOR percent_cursor(p_contract_id VARCHAR2) IS
+       SELECT
             p.contract_id,
             p.currency_ccode,
             p.rate_type,
@@ -57,6 +46,7 @@ IS
                 ROW_NUMBER() OVER (PARTITION BY percent.contract_id ORDER BY percent.rate_begin_date) AS rn
             FROM
                 percent
+            WHERE percent.contract_id = p_contract_id
         ) p
         ORDER BY
             p.rate_begin_date;
@@ -111,107 +101,96 @@ IS
     repayments_arr  repayment_arr_type;
     j NUMBER;
     temp_remaining_repayment NUMBER(18,2);
+
 BEGIN
-    total_repayment_amount := 0;
-   -- Fetch repayments into an array
-    SELECT repayment_rec_type(
-           p.contract_id,
-             p.currency_ccode,
-             p.rate_type,
-             p.contract_rate,
-             p.percent_amount,
-             p.rate_begin_date,
-             p.rate_end_date,
-             r.repayment_amount,
-            r.repayment_date
-    )
-    BULK COLLECT INTO repayments_arr
-    FROM repayment r
-    JOIN percent p ON r.contract_id = p.contract_id
-    WHERE r.contract_id = '165284'
-    ORDER BY r.repayment_date;
-
-    FOR rec_percent IN percent_cursor
-    LOOP
-
-        remaining_repayment := 0;
-        remaining_repayment_temp := rec_percent.percent_amount;
-           j:= 1;
-           temp_remaining_repayment := 0;
-        WHILE j <= repayments_arr.COUNT
+    FOR rec_contract_id IN contract_id_cursor
         LOOP
-            -- Блок обработки ошибок распределения выплат
-            BEGIN
-                 -- Initialize current_repayment_amount for the current iteration
-                current_repayment_amount := 0;
-               -- 3.2.1. Проверка, есть ли доступные выплаты для распределения
-                IF (repayments_arr(j).repayment_amount > 0) THEN
-                     --  If total_repayment_amount is zero assign repayment amount from current record
-                       IF total_repayment_amount = 0 THEN
-                           total_repayment_amount := repayments_arr(j).repayment_amount;
-                        END IF;
+            total_repayment_amount := 0;
+            -- Fetch repayments into an array
+            SELECT repayment_rec_type(
+                   p.contract_id,
+                     p.currency_ccode,
+                     p.rate_type,
+                     p.contract_rate,
+                     p.percent_amount,
+                     p.rate_begin_date,
+                     p.rate_end_date,
+                     r.repayment_amount,
+                    r.repayment_date
+                )
+            BULK COLLECT INTO repayments_arr
+            FROM repayment r
+            JOIN percent p ON r.contract_id = p.contract_id
+            WHERE r.contract_id = rec_contract_id.contract_id
+            ORDER BY r.repayment_date;
+             -- Initialize total_repayment_amount from the first record
+             IF repayments_arr.COUNT > 0 THEN
+                 total_repayment_amount := repayments_arr(1).repayment_amount;
+             END IF;
+           FOR rec_percent IN percent_cursor(rec_contract_id.contract_id)
+            LOOP
+                 remaining_repayment := 0;
+                 remaining_repayment_temp := rec_percent.percent_amount;
+                 temp_remaining_repayment := 0;
+                     j:=1;
+                WHILE j <= repayments_arr.COUNT
+                LOOP
+                      -- Initialize current_repayment_amount for the current iteration
+                    current_repayment_amount := 0;
+                  -- 3.2.1. Проверка, есть ли доступные выплаты для распределения
+                     IF (total_repayment_amount > 0) THEN
+                         -- 3.2.2. Распределение выплаты, если ее хватает
+                       IF (total_repayment_amount >= remaining_repayment_temp) THEN
+                             current_repayment_amount := remaining_repayment_temp;
+                            temp_allocated_amount := current_repayment_amount;
+                            -- Создание строки результата
+                              alloc_row := allocation_row_type(
+                                  rec_percent.contract_id,
+                                  rec_percent.rate_begin_date,
+                                  rec_percent.percent_amount,
+                                   temp_allocated_amount,
+                                  repayments_arr(j).repayment_date
+                                );
+                            -- Возвращение строки результата
+                             PIPE ROW(alloc_row);
+                            -- Update remaining amount after current allocation
+                           total_repayment_amount := total_repayment_amount - current_repayment_amount;
+                            remaining_repayment_temp := 0;
+                          -- Check if all percentage amount has been allocated and then exit inner loop
+                            IF remaining_repayment_temp = 0 THEN
+                                EXIT;
+                            END IF;
+                        ELSE
+                             current_repayment_amount := total_repayment_amount;
+                             temp_allocated_amount := current_repayment_amount;
+                              alloc_row := allocation_row_type(
+                                 rec_percent.contract_id,
+                                 rec_percent.rate_begin_date,
+                                 rec_percent.percent_amount,
+                                   temp_allocated_amount,
+                                  repayments_arr(j).repayment_date
+                                );
+                                PIPE ROW(alloc_row);
+                                remaining_repayment_temp := remaining_repayment_temp - total_repayment_amount;
+                                total_repayment_amount := 0;
+                         END IF;
+                 END IF;
+               j:= j+1;
+             END LOOP;
 
-                    -- 3.2.2. Распределение выплаты, если ее хватает
-                   IF (total_repayment_amount >= remaining_repayment_temp) THEN
-                        -- Calculate the amount to allocate from this repayment
-                        current_repayment_amount := remaining_repayment_temp;
-                         -- Создание строки результата
-
-                         alloc_row := allocation_row_type(
-                            rec_percent.contract_id,
-                            rec_percent.rate_begin_date,
-                            rec_percent.percent_amount,
-                             current_repayment_amount,
-                            repayments_arr(j).repayment_date
-                         );
-                         -- Возвращение строки результата
-                        PIPE ROW(alloc_row);
-                         -- Обновление оставшейся суммы выплаты
-                        total_repayment_amount := total_repayment_amount - current_repayment_amount;
-                         -- Обновление остатка
-                        remaining_repayment := rec_percent.percent_amount;
-                        -- If current record is fully allocated, exit the loop
-                        IF remaining_repayment = rec_percent.percent_amount THEN
-                            EXIT;
-                        END IF;
-                   ELSE
-                        -- 3.2.3. Распределение остатка выплаты, если ее недостаточно для полного покрытия
-                        current_repayment_amount := total_repayment_amount;
-                        alloc_row := allocation_row_type(
-                            rec_percent.contract_id,
-                           rec_percent.rate_begin_date,
-                           rec_percent.percent_amount,
-                           current_repayment_amount,
-                           repayments_arr(j).repayment_date
-                           );
-                        -- Возвращение строки результата
-                        PIPE ROW(alloc_row);
-                         -- Обновление остатка
-
-                        remaining_repayment := remaining_repayment + total_repayment_amount;
-                         -- Обнуление текущей выплаты
-                         total_repayment_amount := 0;
-                    END IF;
-                END IF;
-           EXCEPTION
-             WHEN OTHERS THEN
-                err_msg := 'Ошибка при распределении выплат: ' || SQLERRM;
-                RAISE_APPLICATION_ERROR(-20004, err_msg);
-           END;
-            j := j + 1;
-        END LOOP;
-         -- Дополнительная проверка и добавление строки, если после цикла WHILE остались непокрытые проценты
-        IF remaining_repayment < rec_percent.percent_amount THEN
-          temp_remaining_repayment :=  rec_percent.percent_amount - remaining_repayment;
-        alloc_row := allocation_row_type(
-            rec_percent.contract_id,
-            rec_percent.rate_begin_date,
-            rec_percent.percent_amount,
-           temp_remaining_repayment,
-           NULL  -- Дата выплаты NULL, т.к. ее нет
-       );
-        PIPE ROW(alloc_row);
-        END IF;
+                -- Дополнительная проверка и добавление строки, если после цикла WHILE остались непокрытые проценты
+              IF remaining_repayment_temp > 0 THEN
+                   temp_remaining_repayment := remaining_repayment_temp;
+                   alloc_row := allocation_row_type(
+                      rec_percent.contract_id,
+                      rec_percent.rate_begin_date,
+                      rec_percent.percent_amount,
+                     temp_remaining_repayment,
+                    NULL
+                  );
+                  PIPE ROW(alloc_row);
+              END IF;
+         END LOOP;
     END LOOP;
     RETURN;
   EXCEPTION
