@@ -11,6 +11,15 @@ CREATE OR REPLACE TYPE repayment_rec_type AS OBJECT (
 );
 /
 
+CREATE OR REPLACE TYPE allocation_row_type AS OBJECT (
+    contract_id      VARCHAR2(32),
+    rate_begin_date   DATE,
+    percent_amount    NUMBER,
+    repayment_amount  NUMBER,
+    repayment_date    DATE
+);
+/
+
 CREATE OR REPLACE FUNCTION allocate_repayments
     RETURN allocation_table_type PIPELINED
 IS
@@ -113,24 +122,24 @@ BEGIN
                        repayment_amount_temp := repayment_rec.repayment_amount;
                         IF (repayment_amount_temp >= remaining_repayment_temp) THEN
                            current_repayment_amount := remaining_repayment_temp;
-                           alloc_row := allocation_row_type(
-                            repayment_rec.contract_id,
-                            repayment_rec.rate_begin_date,
-                            repayment_rec.percent_amount,
-                             current_repayment_amount,
-                            repayment_rec.repayment_date
-                           );
-                            PIPE ROW(alloc_row);
+                            alloc_row := allocation_row_type(
+                                 repayment_rec.contract_id,
+                                 repayment_rec.rate_begin_date,
+                                 TO_NUMBER(repayment_rec.percent_amount),
+                                 current_repayment_amount,
+                                 repayment_rec.repayment_date
+                            );
+                           PIPE ROW(alloc_row);
                            repayment_rec.repayment_amount := repayment_amount_temp - current_repayment_amount;
                             remaining_repayment_temp := 0;
                         ELSE
                           current_repayment_amount := repayment_amount_temp;
                            alloc_row := allocation_row_type(
-                           repayment_rec.contract_id,
-                            repayment_rec.rate_begin_date,
-                            repayment_rec.percent_amount,
-                             current_repayment_amount,
-                            repayment_rec.repayment_date
+                                  repayment_rec.contract_id,
+                                  repayment_rec.rate_begin_date,
+                                   TO_NUMBER(repayment_rec.percent_amount),
+                                   current_repayment_amount,
+                                   repayment_rec.repayment_date
                            );
                              PIPE ROW(alloc_row);
                             remaining_repayment_temp := remaining_repayment_temp - repayment_amount_temp;
@@ -163,3 +172,4 @@ BEGIN
         err_msg := 'Error in allocate_repayments: ' || SQLERRM || ' SQLCODE: ' || SQLCODE;
         RAISE_APPLICATION_ERROR(-20002, err_msg);
 END;
+/
