@@ -100,7 +100,7 @@ IS
     repayment_amount_temp    NUMBER(18,2);
     remaining_repayment_temp NUMBER(18,2);
     current_repayment_amount_remaining NUMBER(18,2);
-    remaining_amount NUMBER(18,2); -- Added new variable
+    remaining_amount NUMBER(18,2);
 BEGIN
     FOR rec_percent IN percent_cursor
         LOOP
@@ -122,7 +122,7 @@ BEGIN
                     repayment_rec_fetch.repayment_amount,
                    repayment_rec_fetch.repayment_date
                 );
-                current_repayment_amount_remaining := repayment_rec.repayment_amount;
+                 current_repayment_amount_remaining := repayment_rec.repayment_amount;
                   IF (current_repayment_amount_remaining > 0) THEN
                        repayment_amount_temp := current_repayment_amount_remaining;
                         IF (repayment_amount_temp >= remaining_repayment_temp) THEN
@@ -149,17 +149,17 @@ BEGIN
                                    repayment_rec.repayment_date
                            );
                              PIPE ROW(alloc_row);
-                            remaining_repayment_temp := remaining_repayment_temp - repayment_amount_temp;
+                             remaining_repayment_temp := remaining_repayment_temp - repayment_amount_temp;
                              current_repayment_amount_remaining := 0;
                         END IF;
                 END IF;
-                IF remaining_repayment_temp = 0 THEN
+               IF remaining_repayment_temp = 0 THEN
                        EXIT;
-                END IF;
+               END IF;
              END LOOP;
             CLOSE repayment_cursor;
               remaining_amount := remaining_repayment_temp;
-            IF remaining_amount > 0 THEN
+             IF remaining_amount > 0 THEN
               alloc_row := allocation_row_type(
                   rec_percent.contract_id,
                   rec_percent.rate_begin_date,
@@ -167,7 +167,7 @@ BEGIN
                   remaining_amount,
                   NULL  -- Дата выплаты NULL, т.к. ее нет
               );
-             PIPE ROW(alloc_row);
+              PIPE ROW(alloc_row);
             END IF;
         END LOOP;
     RETURN;
