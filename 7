@@ -95,7 +95,6 @@ IS
     remaining_repayment     NUMBER(18, 2) := 0;
     current_repayment_amount  NUMBER(18, 2);
     allocated_repayment_amount NUMBER(18, 2);
-    total_repayment_amount NUMBER(18,2);
     alloc_row               allocation_row_type;
     err_msg                 VARCHAR2(200);
     repayment_amount_temp    NUMBER(18,2);
@@ -105,7 +104,6 @@ BEGIN
         LOOP
             remaining_repayment := 0;
             remaining_repayment_temp := rec_percent.percent_amount;
-            total_repayment_amount := 0;
             OPEN repayment_cursor(rec_percent.contract_id);
               LOOP
                 FETCH repayment_cursor INTO repayment_rec_fetch;
@@ -122,8 +120,7 @@ BEGIN
                    repayment_rec_fetch.repayment_date
                 );
                   IF (repayment_rec.repayment_amount > 0) THEN
-                        repayment_amount_temp := repayment_rec.repayment_amount;
-                        total_repayment_amount := total_repayment_amount + repayment_amount_temp;
+                       repayment_amount_temp := repayment_rec.repayment_amount;
                         IF (repayment_amount_temp >= remaining_repayment_temp) THEN
                            current_repayment_amount := remaining_repayment_temp;
                            allocated_repayment_amount := current_repayment_amount;
@@ -136,10 +133,10 @@ BEGIN
                             );
                            PIPE ROW(alloc_row);
                            repayment_rec.repayment_amount := repayment_amount_temp - current_repayment_amount;
-                            remaining_repayment_temp := 0;
+                           remaining_repayment_temp := 0;
                         ELSE
                           current_repayment_amount := repayment_amount_temp;
-                            allocated_repayment_amount := current_repayment_amount;
+                           allocated_repayment_amount := current_repayment_amount;
                            alloc_row := allocation_row_type(
                                   rec_percent.contract_id,
                                   rec_percent.rate_begin_date,
