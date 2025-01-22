@@ -120,7 +120,7 @@ BEGIN
                     repayment_rec_fetch.repayment_amount,
                    repayment_rec_fetch.repayment_date
                 );
-                current_repayment_amount_remaining := repayment_rec.repayment_amount;
+                 current_repayment_amount_remaining := repayment_rec.repayment_amount;
                   IF (current_repayment_amount_remaining > 0) THEN
                        repayment_amount_temp := current_repayment_amount_remaining;
                         IF (repayment_amount_temp >= remaining_repayment_temp) THEN
@@ -148,16 +148,17 @@ BEGIN
                            );
                              PIPE ROW(alloc_row);
                             remaining_repayment_temp := remaining_repayment_temp - repayment_amount_temp;
-                            current_repayment_amount_remaining := 0;
+                             current_repayment_amount_remaining := 0;
                         END IF;
                 END IF;
                 IF remaining_repayment_temp = 0 THEN
                        EXIT;
                 END IF;
-             END LOOP;
-            CLOSE repayment_cursor;
 
-            IF remaining_repayment_temp > 0 THEN
+             END LOOP;
+
+             CLOSE repayment_cursor;
+              IF remaining_repayment_temp > 0 THEN
               alloc_row := allocation_row_type(
                   rec_percent.contract_id,
                   rec_percent.rate_begin_date,
