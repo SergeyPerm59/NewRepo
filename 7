@@ -94,6 +94,7 @@ IS
 
     remaining_repayment     NUMBER(18, 2) := 0;
     current_repayment_amount  NUMBER(18, 2);
+    allocated_repayment_amount NUMBER(18, 2); -- Added new variable
     alloc_row               allocation_row_type;
     err_msg                 VARCHAR2(200);
     repayment_amount_temp    NUMBER(18,2);
@@ -122,11 +123,12 @@ BEGIN
                        repayment_amount_temp := repayment_rec.repayment_amount;
                         IF (repayment_amount_temp >= remaining_repayment_temp) THEN
                            current_repayment_amount := remaining_repayment_temp;
+                           allocated_repayment_amount := current_repayment_amount;
                             alloc_row := allocation_row_type(
                                  rec_percent.contract_id,
                                  rec_percent.rate_begin_date,
                                  rec_percent.percent_amount,
-                                 current_repayment_amount,
+                                 allocated_repayment_amount,
                                  repayment_rec.repayment_date
                             );
                            PIPE ROW(alloc_row);
@@ -134,11 +136,12 @@ BEGIN
                             remaining_repayment_temp := 0;
                         ELSE
                           current_repayment_amount := repayment_amount_temp;
+                            allocated_repayment_amount := current_repayment_amount;
                            alloc_row := allocation_row_type(
                                   rec_percent.contract_id,
                                   rec_percent.rate_begin_date,
                                   rec_percent.percent_amount,
-                                   current_repayment_amount,
+                                  allocated_repayment_amount,
                                    repayment_rec.repayment_date
                            );
                              PIPE ROW(alloc_row);
