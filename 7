@@ -101,6 +101,7 @@ IS
     remaining_repayment_temp NUMBER(18,2);
     current_repayment_amount_remaining NUMBER(18,2);
     remaining_amount NUMBER(18,2);
+    temp_allocated_amount NUMBER(18,2); -- Added new variable
 BEGIN
     FOR rec_percent IN percent_cursor
         LOOP
@@ -127,7 +128,8 @@ BEGIN
                        repayment_amount_temp := current_repayment_amount_remaining;
                         IF (repayment_amount_temp >= remaining_repayment_temp) THEN
                            current_repayment_amount := remaining_repayment_temp;
-                           allocated_repayment_amount := current_repayment_amount;
+                           temp_allocated_amount := current_repayment_amount; -- Assigned allocated amount to this variable
+                           allocated_repayment_amount := temp_allocated_amount;
                             alloc_row := allocation_row_type(
                                  rec_percent.contract_id,
                                  rec_percent.rate_begin_date,
@@ -140,7 +142,8 @@ BEGIN
                            remaining_repayment_temp := 0;
                         ELSE
                           current_repayment_amount := repayment_amount_temp;
-                           allocated_repayment_amount := current_repayment_amount;
+                          temp_allocated_amount := current_repayment_amount;  -- Assigned allocated amount to this variable
+                          allocated_repayment_amount := temp_allocated_amount;
                            alloc_row := allocation_row_type(
                                   rec_percent.contract_id,
                                   rec_percent.rate_begin_date,
@@ -149,7 +152,7 @@ BEGIN
                                    repayment_rec.repayment_date
                            );
                              PIPE ROW(alloc_row);
-                             remaining_repayment_temp := remaining_repayment_temp - repayment_amount_temp;
+                            remaining_repayment_temp := remaining_repayment_temp - repayment_amount_temp;
                              current_repayment_amount_remaining := 0;
                         END IF;
                 END IF;
@@ -160,14 +163,15 @@ BEGIN
             CLOSE repayment_cursor;
               remaining_amount := remaining_repayment_temp;
              IF remaining_amount > 0 THEN
+                allocated_repayment_amount := remaining_amount; -- Assign remaining to allocated
               alloc_row := allocation_row_type(
                   rec_percent.contract_id,
                   rec_percent.rate_begin_date,
                   rec_percent.percent_amount,
-                  remaining_amount,
+                  allocated_repayment_amount,
                   NULL  -- Дата выплаты NULL, т.к. ее нет
               );
-              PIPE ROW(alloc_row);
+             PIPE ROW(alloc_row);
             END IF;
         END LOOP;
     RETURN;
