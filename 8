@@ -1,8 +1,8 @@
 WITH RepaymentOrdered AS (
     SELECT
         contract_id,
-        repayment_date,
         repayment_amount,
+        repayment_date,
         ROW_NUMBER() OVER (PARTITION BY contract_id ORDER BY repayment_date) as rn
     FROM
         repayment
@@ -10,63 +10,38 @@ WITH RepaymentOrdered AS (
 PercentOrdered AS (
     SELECT
         contract_id,
-        rate_begin_date,
-        rate_end_date,
         percent_amount,
         ROW_NUMBER() OVER (PARTITION BY contract_id ORDER BY rate_begin_date) as rn
     FROM
         percent
 ),
-CumulativeCalculation AS (
-    SELECT
-        ro.contract_id,
-        ro.repayment_date,
-        ro.repayment_amount,
-        po.rate_begin_date,
-        po.rate_end_date,
-        po.percent_amount,
-        ro.rn AS repayment_rn,
-        po.rn AS percent_rn,
-        LAG(cumulative_balance, 1, ro.repayment_amount) OVER (PARTITION BY ro.contract_id ORDER BY ro.rn, po.rn) - po.percent_amount AS cumulative_balance
-    FROM
-        RepaymentOrdered ro
-    LEFT JOIN
-        PercentOrdered po ON ro.contract_id = po.contract_id
-    WHERE po.rn <= (SELECT COUNT(*) FROM percent p2 WHERE ro.contract_id = p2.contract_id)
-),
-Result AS (
+RecursiveCTE AS (
   SELECT
-      contract_id,
-      repayment_date,
-      repayment_amount,
-      rate_begin_date,
-      rate_end_date,
-      percent_amount,
-      cumulative_balance
-  FROM CumulativeCalculation
-  WHERE cumulative_balance >= 0
-    UNION ALL
-    SELECT
-      contract_id,
-      repayment_date,
-      repayment_amount,
-      rate_begin_date,
-      rate_end_date,
-      percent_amount,
-      cumulative_balance
-    FROM
-        CumulativeCalculation
-        WHERE cumulative_balance < 0
-        AND LAG(cumulative_balance,1,0) OVER (PARTITION BY contract_id ORDER BY repayment_rn,percent_rn) >= 0
+    ro.contract_id,
+    ro.repayment_amount,
+    ro.repayment_date,
+    po.percent_amount,
+    ro.repayment_amount - po.percent_amount as remaining_amount,
+    1 as level
+  FROM RepaymentOrdered ro
+  JOIN PercentOrdered po ON ro.contract_id = po.contract_id AND ro.rn = po.rn
+  UNION ALL
+  SELECT
+    r.contract_id,
+    r.repayment_amount,
+    r.repayment_date,
+    p.percent_amount,
+    r.remaining_amount - p.percent_amount as remaining_amount,
+    level + 1 as level
+  FROM RecursiveCTE r
+  JOIN PercentOrdered p ON r.contract_id = p.contract_id AND r.level + 1 = p.rn
+  WHERE r.remaining_amount > 0
 )
 SELECT
     contract_id,
-    repayment_date,
     repayment_amount,
-    rate_begin_date,
-    rate_end_date,
+    repayment_date,
     percent_amount,
-    cumulative_balance
-FROM
-    Result
-ORDER BY contract_id, repayment_date, rate_begin_date;
+    remaining_amount
+FROM RecursiveCTE
+ORDER BY contract_id, repayment_date, level;
