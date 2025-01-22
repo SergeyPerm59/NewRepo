@@ -123,9 +123,9 @@ BEGIN
                         IF (repayment_amount_temp >= remaining_repayment_temp) THEN
                            current_repayment_amount := remaining_repayment_temp;
                             alloc_row := allocation_row_type(
-                                 repayment_rec.contract_id,
-                                 repayment_rec.rate_begin_date,
-                                 TO_NUMBER(repayment_rec.percent_amount),
+                                 rec_percent.contract_id,
+                                 rec_percent.rate_begin_date,
+                                 rec_percent.percent_amount,
                                  current_repayment_amount,
                                  repayment_rec.repayment_date
                             );
@@ -135,9 +135,9 @@ BEGIN
                         ELSE
                           current_repayment_amount := repayment_amount_temp;
                            alloc_row := allocation_row_type(
-                                  repayment_rec.contract_id,
-                                  repayment_rec.rate_begin_date,
-                                   TO_NUMBER(repayment_rec.percent_amount),
+                                  rec_percent.contract_id,
+                                  rec_percent.rate_begin_date,
+                                  rec_percent.percent_amount,
                                    current_repayment_amount,
                                    repayment_rec.repayment_date
                            );
@@ -172,4 +172,3 @@ BEGIN
         err_msg := 'Error in allocate_repayments: ' || SQLERRM || ' SQLCODE: ' || SQLCODE;
         RAISE_APPLICATION_ERROR(-20002, err_msg);
 END;
-/
