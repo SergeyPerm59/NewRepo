@@ -1,3 +1,25 @@
+CREATE OR REPLACE TYPE repayment_rec_type AS OBJECT (
+    contract_id       VARCHAR2(32),
+	currency_ccode    VARCHAR2(3),
+	rate_type         VARCHAR2(15),
+	contract_rate     NUMBER,
+	percent_amount    NUMBER,
+	rate_begin_date   DATE,
+	rate_end_date     DATE,
+    repayment_amount  NUMBER,
+    repayment_date    DATE
+);
+/
+
+CREATE OR REPLACE TYPE allocation_row_type AS OBJECT (
+    contract_id      VARCHAR2(32),
+    rate_begin_date   DATE,
+    percent_amount    NUMBER,
+    repayment_amount  NUMBER,
+    repayment_date    DATE
+);
+/
+
 CREATE OR REPLACE FUNCTION allocate_repayments
     RETURN allocation_table_type PIPELINED
 IS
@@ -127,7 +149,7 @@ BEGIN
              IF repayments_arr.COUNT > 0 THEN
                  total_repayment_amount := repayments_arr(1).repayment_amount;
              END IF;
-           FOR rec_percent IN percent_cursor(rec_contract_id.contract_id)
+           FOR rec_percent IN percent_cursor(rec_contract_id.contract_id) -- Parameter passed here
             LOOP
                  remaining_repayment := 0;
                  remaining_repayment_temp := rec_percent.percent_amount;
