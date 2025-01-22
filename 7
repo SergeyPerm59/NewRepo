@@ -52,10 +52,24 @@ IS
         ORDER BY
             p.rate_begin_date;
 
+    TYPE repayment_fetch_rec_type IS RECORD (
+             contract_id        VARCHAR2(32),
+             currency_ccode     VARCHAR2(3),
+             rate_type          VARCHAR2(15),
+             contract_rate       NUMBER,
+             percent_amount      NUMBER,
+             rate_begin_date    DATE,
+             rate_end_date      DATE,
+             repayment_date      DATE,
+             repayment_amount    NUMBER
+    );
+
+    repayment_rec_fetch    repayment_fetch_rec_type;
 
     repayment_rec           repayment_rec_type;
+
     CURSOR repayment_cursor(p_contract_id VARCHAR2) IS
-        SELECT
+       SELECT
              p.contract_id,
              p.currency_ccode,
              p.rate_type,
@@ -83,8 +97,19 @@ BEGIN
             remaining_repayment_temp := rec_percent.percent_amount;
             OPEN repayment_cursor(rec_percent.contract_id);
               LOOP
-                FETCH repayment_cursor INTO repayment_rec;
+                FETCH repayment_cursor INTO repayment_rec_fetch;
                  EXIT WHEN repayment_cursor%NOTFOUND;
+                repayment_rec :=  repayment_rec_type(
+                   repayment_rec_fetch.contract_id,
+                   repayment_rec_fetch.currency_ccode,
+                   repayment_rec_fetch.rate_type,
+                   repayment_rec_fetch.contract_rate,
+                   repayment_rec_fetch.percent_amount,
+                   repayment_rec_fetch.rate_begin_date,
+                   repayment_rec_fetch.rate_end_date,
+                    repayment_rec_fetch.repayment_amount,
+                   repayment_rec_fetch.repayment_date
+                );
                   IF (repayment_rec.repayment_amount > 0) THEN
                        repayment_amount_temp := repayment_rec.repayment_amount;
                         IF (repayment_amount_temp >= remaining_repayment_temp) THEN
