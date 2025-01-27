@@ -1,0 +1,149 @@
+-- 1. Создание глобального типа для коллекции
+CREATE OR REPLACE TYPE AllocationRowType AS OBJECT (
+    contract_id   NUMBER,
+    rate_begin_date  DATE,
+    percent_amount  NUMBER,
+    paid_amount     NUMBER,
+    repayment_date  DATE
+);
+/
+
+CREATE OR REPLACE TYPE AllocationTableType AS TABLE OF AllocationRowType;
+/
+
+-- 2. Функция (теперь возвращает коллекцию)
+CREATE OR REPLACE FUNCTION CalculatePercentAllocation
+RETURN AllocationTableType
+IS
+  -- Тип для хранения информации о процентах
+  TYPE PercentRecordType IS RECORD (
+    contract_id    PERCENT.contract_id%TYPE,
+    currency_ccode PERCENT.currency_ccode%TYPE,
+    rate_type      PERCENT.rate_type%TYPE,
+    contract_rate  PERCENT.contract_rate%TYPE,
+    percent_amount NUMBER,
+    rate_begin_date DATE,
+    rate_end_date   DATE,
+    paid_amount     NUMBER
+  );
+  -- Тип для хранения массива процентов
+  TYPE PercentArrayType IS TABLE OF PercentRecordType;
+  -- Переменная для хранения информации о распределении (для вывода)
+  v_allocations AllocationTableType := AllocationTableType();
+  -- Курсор для получения всех contract_id
+  CURSOR cur_contract_ids IS
+    SELECT DISTINCT contract_id
+    FROM percent;
+  v_current_contract_id percent.contract_id%TYPE;
+  -- Курсор для получения всех процентов по contract_id
+  CURSOR cur_percents(p_contract_id IN percent.contract_id%TYPE) IS
+    SELECT
+      contract_id,
+      currency_ccode,
+      rate_type,
+      contract_rate,
+      percent_amount,
+      rate_begin_date,
+      rate_end_date,
+      0
+    FROM
+      percent
+    WHERE
+      contract_id = p_contract_id
+    ORDER BY rate_begin_date;
+  -- Курсор для получения всех сумм выплат по contract_id
+  CURSOR cur_repayments(p_contract_id IN repayment.contract_id%TYPE) IS
+    SELECT repayment_date, repayment_amount
+    FROM repayment
+    WHERE contract_id = p_contract_id
+    ORDER BY repayment_date;
+  v_repayment_date    repayment.repayment_date%TYPE;
+  v_repayment_amount  repayment.repayment_amount%TYPE;
+  v_percents PercentArrayType;
+  v_rate_begin_date_str VARCHAR2(10);
+  v_rate_end_date_str VARCHAR2(10);
+  v_remaining_repayment_amount NUMBER;
+BEGIN
+  OPEN cur_contract_ids;
+  LOOP
+    FETCH cur_contract_ids INTO v_current_contract_id;
+    EXIT WHEN cur_contract_ids%NOTFOUND;
+    -- Сбрасываем v_percents для нового contract_id
+    v_percents := PercentArrayType();
+    -- Загружаем все проценты в массив
+    FOR rec IN cur_percents(v_current_contract_id) LOOP
+      v_percents.EXTEND;
+      v_percents(v_percents.COUNT) := rec;
+    END LOOP;
+    -- Распределяем выплаты по процентам
+    OPEN cur_repayments(v_current_contract_id);
+    LOOP
+      FETCH cur_repayments INTO v_repayment_date, v_repayment_amount;
+      EXIT WHEN cur_repayments%NOTFOUND;
+      v_remaining_repayment_amount := v_repayment_amount;
+      -- Распределяем текущую выплату по процентам
+      FOR i IN 1..v_percents.COUNT LOOP
+        -- Если процент еще не погашен полностью
+        IF v_percents(i).paid_amount < v_percents(i).percent_amount THEN
+          -- Вычисляем сумму, которую можно погасить
+          DECLARE
+            v_payable_amount NUMBER := LEAST(v_remaining_repayment_amount, (v_percents(i).percent_amount - v_percents(i).paid_amount));
+          BEGIN
+            -- Увеличиваем сумму погашенных процентов
+            v_percents(i).paid_amount := v_percents(i).paid_amount + v_payable_amount;
+            -- Уменьшаем сумму оставшейся выплаты
+            v_remaining_repayment_amount := v_remaining_repayment_amount - v_payable_amount;
+            -- Форматируем даты для вывода
+            v_rate_begin_date_str := to_char(v_percents(i).rate_begin_date, 'dd.mm.yyyy');
+            v_rate_end_date_str := to_char(v_percents(i).rate_end_date, 'dd.mm.yyyy');
+            -- Добавляем запись о распределении в коллекцию
+            v_allocations.extend;
+            v_allocations(v_allocations.COUNT) := AllocationRowType(
+              v_percents(i).contract_id,
+              v_percents(i).rate_begin_date,
+              v_percents(i).percent_amount,
+              v_payable_amount,
+              v_repayment_date
+            );
+            IF v_remaining_repayment_amount = 0 THEN
+              EXIT;
+            END IF;
+          END;
+        END IF;
+      END LOOP;
+      IF v_remaining_repayment_amount > 0 THEN
+        dbms_output.put_line('Остаток выплаты ' || v_remaining_repayment_amount || ' не распределен для выплаты от ' || to_char(v_repayment_date, 'dd.mm.yyyy'));
+      END IF;
+    END LOOP;
+    -- Дополнительная проверка: Проверяем, остались ли непокрытые проценты после всех выплат
+    FOR i IN 1..v_percents.COUNT LOOP
+      IF v_percents(i).paid_amount < v_percents(i).percent_amount THEN
+        v_allocations.extend;
+        v_allocations(v_allocations.COUNT) := AllocationRowType(
+          v_percents(i).contract_id,
+          v_percents(i).rate_begin_date,
+          v_percents(i).percent_amount,
+          v_percents(i).percent_amount - v_percents(i).paid_amount, -- непокрытая сумма
+          NULL -- Дата выплаты NULL
+        );
+      END IF;
+    END LOOP;
+    CLOSE cur_repayments;
+  END LOOP;
+  CLOSE cur_contract_ids;
+  -- Теперь возвращаем готовую коллекцию
+  RETURN v_allocations;
+END;
+/
+
+
+-- 3. Вызов функции через SELECT
+SELECT
+    contract_id,
+    rate_begin_date,
+    percent_amount,
+    paid_amount,
+    repayment_date
+FROM TABLE (
+    CalculatePercentAllocation()
+);
